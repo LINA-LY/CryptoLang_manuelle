@@ -1,0 +1,6 @@
+const char* code_source = 
+    "@protocol Test\n"
+    "@main {\n"
+    "    plain :: m = \"non_fermee;\n"
+    "}\n"
+    "@endprotocol";

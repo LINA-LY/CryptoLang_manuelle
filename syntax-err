@@ -1,0 +1,6 @@
+const char* code_source = 
+    "@protocol TestSyntax\n"
+    "@main {\n"
+    "    byte :: x = 10\n"
+    "}\n"
+    "@endprotocol";

@@ -35,6 +35,7 @@ char *source_code;
 int pos = 0;
 int ligne_lex = 1;
 int colonne_lex = 1;
+int erreurs = 0;
 
 Token tokens[1000];
 int token_count = 0;
@@ -98,13 +99,24 @@ Token scan_identifiant() {
 }
 
 Token scan_string() {
-    Token token = {TOKEN_STRING, "", ligne_lex, colonne_lex};
+    Token token = {TOKEN_ERREUR, "", ligne_lex, colonne_lex};
     int i = 0;
     token.lexeme[i++] = advance(); // '"'
-    while (peek() != '"' && peek() != '\0' && peek() != '\n') 
-        token.lexeme[i++] = advance();
-    if (peek() == '"') token.lexeme[i++] = advance();
-    token.lexeme[i] = '\0';
+    
+    while (peek() != '"' && peek() != '\0' && peek() != '\n') {
+        if (i < 255) token.lexeme[i++] = advance();
+        else { advance(); } // éviter buffer overflow
+    }
+    
+    if (peek() == '"') {
+        token.lexeme[i++] = advance(); // fermer le guillemet
+        token.lexeme[i] = '\0';
+        token.type = TOKEN_STRING;
+    } else {
+        // Chaîne non fermée → erreur lexicale explicite
+        strcpy(token.lexeme, "chaîne non fermée");
+        token.type = TOKEN_ERREUR;
+    }
     return token;
 }
 
@@ -203,6 +215,12 @@ void tokenize(const char* code) {
     Token token;
     do {
         token = get_next_token();
+        if (token.type == TOKEN_ERREUR) {
+            printf(" ERREUR LEXICALE [Ligne %d, Colonne %d] : %s\n", 
+                   token.ligne, token.colonne, token.lexeme);
+            erreurs++;  // ← maintenant déclarée globalement → OK
+            return;
+        }
         if (token.type != TOKEN_COMMENTAIRE) {
             tokens[token_count++] = token;
         }
@@ -227,8 +245,9 @@ int nb_symboles = 0;
 int ajouter_symbole(const char* nom, const char* type, int ligne) {
     for (int i = 0; i < nb_symboles; i++) {
         if (strcmp(table_symboles[i].nom, nom) == 0) {
-            printf("❌ ERREUR SÉMANTIQUE [Ligne %d] : Variable '%s' déjà déclarée ligne %d\n",
+            printf(" ERREUR SÉMANTIQUE [Ligne %d] : Variable '%s' déjà déclarée ligne %d\n",
                    ligne, nom, table_symboles[i].ligne_declaration);
+            erreurs++;  
             return -1;
         }
     }
@@ -247,7 +266,8 @@ char* obtenir_type(const char* nom, int ligne) {
             return table_symboles[i].type;
         }
     }
-    printf("❌ ERREUR SÉMANTIQUE [Ligne %d] : Variable '%s' non déclarée\n", ligne, nom);
+    printf(" ERREUR SÉMANTIQUE [Ligne %d] : Variable '%s' non déclarée\n", ligne, nom);
+    erreurs++;  
     return "erreur";
 }
 
@@ -301,10 +321,10 @@ void generer_quadruplet(const char* op, const char* arg1, const char* arg2, cons
 ═══════════════════════════════════════════════════════════*/
 Token current_token;
 int token_index = 0;
-int erreurs = 0;
+
 
 void erreur(const char* message) {
-    printf("❌ ERREUR [Ligne %d] : %s (token: '%s')\n", 
+    printf(" ERREUR SYNTAXIQUE [Ligne %d] : %s (token: '%s')\n", 
            current_token.ligne, message, current_token.lexeme);
     erreurs++;
 }
@@ -394,7 +414,7 @@ ExpressionInfo parse_terme() {
         ExpressionInfo droite = parse_facteur();
         
         if (!types_compatibles(gauche.type, droite.type)) {
-            printf("❌ ERREUR SÉMANTIQUE [Ligne %d] : Types incompatibles\n", current_token.ligne);
+            printf(" ERREUR SÉMANTIQUE [Ligne %d] : Types incompatibles\n", current_token.ligne);
             erreurs++;
         }
         
@@ -417,7 +437,7 @@ ExpressionInfo parse_expression() {
         ExpressionInfo droite = parse_terme();
         
         if (!types_compatibles(gauche.type, droite.type)) {
-            printf("❌ ERREUR SÉMANTIQUE [Ligne %d] : Types incompatibles\n", current_token.ligne);
+            printf(" ERREUR SÉMANTIQUE [Ligne %d] : Types incompatibles\n", current_token.ligne);
             erreurs++;
         }
         
@@ -485,7 +505,7 @@ void parse_instruction() {
             if (accepter_token(TOKEN_EGAL)) {
                 ExpressionInfo expr = parse_expression();
                 if (!types_compatibles(type, expr.type)) {
-                    printf("❌ ERREUR SÉMANTIQUE [Ligne %d] : Type incompatible\n", ligne);
+                    printf(" ERREUR SÉMANTIQUE [Ligne %d] : Type incompatible\n", ligne);
                     erreurs++;
                 }
                 generer_quadruplet("=", expr.addr, "", var_name);
@@ -504,7 +524,7 @@ void parse_instruction() {
         ExpressionInfo expr = parse_expression();
         
         if (!types_compatibles(var_type, expr.type)) {
-            printf("❌ ERREUR SÉMANTIQUE [Ligne %d] : Type incompatible\n", ligne);
+            printf(" ERREUR SÉMANTIQUE [Ligne %d] : Type incompatible\n", ligne);
             erreurs++;
         }
         generer_quadruplet("=", expr.addr, "", var_name);
@@ -627,46 +647,61 @@ void afficher_quadruplets() {
   FONCTION PRINCIPALE
 ═══════════════════════════════════════════════════════════*/
 int main() {
-    printf("\n╔═══════════════════════════════════════════════════════════╗\n");
-    printf("║          COMPILATEUR CRYPTOLANG - PIPELINE COMPLET         ║\n");
-    printf("║      Lexical → Syntaxique → Sémantique → Quadruplets      ║\n");
+    printf("\n╔═════════════════════════════════════════════════════════╗\n");
+    printf("║          COMPILATEUR CRYPTOLANG - PIPELINE COMPLET        ║\n");
+    printf("║      Lexical → Syntaxique → Sémantique                    ║\n");
     printf("╚═══════════════════════════════════════════════════════════╝\n");
     
-    const char* code_source = 
-        "@protocol TestComplet\n"
-        "@keyspace {\n"
-        "    byte :: x = 10;\n"
-        "    byte :: y = 5;\n"
-        "    key256 :: cle = 0xABCD;\n"
-        "}\n"
-        "@main {\n"
-        "    byte :: z = x + y * 2;\n"
-        "    x = z - 3;\n"
-        "    plain :: msg = \"Hello\";\n"
-        "    cipher :: enc = msg @> cle;\n"
-        "    -> x;\n"
-        "    @loop [ x > 0 ] {\n"
-        "        x = x - 1;\n"
-        "    }\n"
-        "}\n"
-        "@endprotocol";
+
+const char* code_source = 
+    "@protocol ProgrammeCorrect\n"
+    "\n"
+    "@keyspace {\n"
+    "    byte :: compteur = 5;\n"
+    "}\n"
+    "\n"
+    "@main {\n"
+    "    plain :: msg = \"Secret\";\n"
+    "    \n"
+    "    @loop [ compteur > 0 ] {\n"
+    "        compteur = compteur - 1;\n"
+    "    }\n"
+    "    \n"
+    "    hash :: h = msg #>;\n"
+    "    -> h;\n"
+    "}\n"
+    "\n"
+    "@endprotocol";
     
-    printf("\n📄 CODE SOURCE:\n");
+    printf("\n CODE SOURCE:\n");
     printf("═══════════════════════════════════════════════════════════\n");
     printf("%s\n", code_source);
     printf("═══════════════════════════════════════════════════════════\n");
     
     // ▶ PHASE 1 : ANALYSE LEXICALE
-    printf("\n🔍 PHASE 1 : ANALYSE LEXICALE\n");
-    tokenize(code_source);
-    printf("✅ %d tokens générés\n", token_count);
-    afficher_tokens();
-    
-    // ▶ PHASE 2 & 3 : ANALYSE SYNTAXIQUE + SÉMANTIQUE + CODE INTERMÉDIAIRE
-    printf("\n🔍 PHASE 2-3 : ANALYSE SYNTAXIQUE, SÉMANTIQUE ET GÉNÉRATION\n");
-    token_index = 0;
-    current_token = tokens[0];
-    parse_programme();
+printf("\n PHASE 1 : ANALYSE LEXICALE\n");
+erreurs = 0; // réinitialiser
+tokenize(code_source);
+
+if (erreurs > 0) {
+    printf("\n COMPILATION ÉCHOUÉE : Erreur lexicale détectée.\n");
+    return 1;
+}
+
+printf(" %d tokens générés\n", token_count);
+afficher_tokens();
+
+// ▶ PHASE 2+ : seulement si pas d’erreur lexicale
+printf("\n PHASE 2-3 : ANALYSE SYNTAXIQUE, SÉMANTIQUE ET GÉNÉRATION\n");
+token_index = 0;
+current_token = tokens[0];
+parse_programme();
+
+// Si erreur syntaxique/sémantique, on peut aussi arrêter proprement
+if (erreurs > 0) {
+    printf("\n COMPILATION ÉCHOUÉE : %d erreur(s) détectée(s).\n", erreurs);
+    return 1;
+}
     
     // ▶ RÉSULTATS FINAUX
     afficher_table_symboles();
@@ -674,9 +709,9 @@ int main() {
     
     printf("\n═══════════════════════════════════════════════════════════\n");
     if (erreurs == 0) {
-        printf("✅ COMPILATION RÉUSSIE : Aucune erreur!\n");
+        printf(" COMPILATION RÉUSSIE : Aucune erreur!\n");
     } else {
-        printf("❌ COMPILATION ÉCHOUÉE : %d erreur(s)\n", erreurs);
+        printf(" COMPILATION ÉCHOUÉE : %d erreur(s)\n", erreurs);
     }
     printf("═══════════════════════════════════════════════════════════\n\n");
     

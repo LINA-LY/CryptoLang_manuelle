@@ -1,0 +1,18 @@
+ const char* code_source = 
+        "@protocol TestComplet\n"
+        "@keyspace {\n"
+        "    byte :: x = 10;\n"
+        "    byte :: y = 5;\n"
+        "    key256 :: cle = 0xABCD;\n"
+        "}\n"
+        "@main {\n"
+        "    byte :: z = x + y * 2;\n"
+        "    x = z - 3;\n"
+        "    plain :: msg = \"Hello\";\n"
+        "    cipher :: enc = msg @> cle;\n"
+        "    -> x;\n"
+        "    @loop [ x > 0 ] {\n"
+        "        x = x - 1;\n"
+        "    }\n"
+        "}\n"
+        "@endprotocol";
